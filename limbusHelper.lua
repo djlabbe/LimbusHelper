@@ -23,12 +23,11 @@
 
 _addon.name     = 'LimbusHelper'
 _addon.author   = 'Kaius @ Bahamut'
-_addon.version  = '1.2'
+_addon.version  = '1.04'
 _addon.commands = {'limbushelper', 'lh'}
 
 config = require('config')
 texts  = require('texts')
-files  = require('files')
 require('logger')
 require('coroutine')
 
@@ -46,7 +45,7 @@ local zone_name = {
 -- Per-zone ordered sector lists (order controls display)
 local zone_sectors = {
     [APOLLYON] = {'NW', 'NE', 'SW', 'SE'},
-    [TEMENOS]  = {'N', 'E', 'W', 'C'},
+    [TEMENOS]  = {'N', 'W', 'E', 'C'},
 }
 
 -- Known chest positions (3-D nearest-neighbour detection)
@@ -64,13 +63,15 @@ local TEMENOS_CHESTS = {
     C = {x = -281, y = -423, z = -162},
 }
 
-local STANDARD_AMT = 3000
-local BONUS_AMT    = 5000
+local STANDARD_AMT   = 3000
+local BONUS_AMT      = 5000
+local CHEST_DIST     = 20   -- yalms; must be within this range to count as a chest open
 
 -- ---------------------------------------------------------------------------
 -- Config
 -- Display settings are global (settings.xml).
--- Sector state is per-character (state.xml) so it never pollutes <global>.
+-- Sector state is per-character (data/state.xml): the config library writes
+-- each character's data to its own <CharName> section automatically.
 -- ---------------------------------------------------------------------------
 local display_defaults = T{}
 display_defaults.pos_x     = 8
@@ -80,13 +81,9 @@ display_defaults.bg_alpha  = 200
 
 settings = config.load(display_defaults)
 
--- Sector state: pre-create with an empty <global /> so config.load never
--- writes defaults into it, keeping all sector values in the character section.
-local state_file = files.new('data/state.xml')
-if not state_file:exists() then
-    state_file:write('<?xml version="1.1" ?>\n<settings>\n    <global />\n</settings>\n')
-end
-
+-- Sector state: one file per character (data/state_CharName.xml) so that
+-- simultaneous Windower instances never write to the same file.
+-- Loaded lazily in init_player_state() once the player object is available.
 local state_defaults = T{}
 state_defaults.apollyon_NW = false
 state_defaults.apollyon_NE = false
@@ -97,7 +94,12 @@ state_defaults.temenos_E   = false
 state_defaults.temenos_W   = false
 state_defaults.temenos_C   = false
 
-state = config.load('data/state.xml', state_defaults)
+local function init_player_state()
+    if state then return end  -- already initialized
+    local player = windower.ffxi.get_player()
+    if not player then return end  -- defer; login event will handle it
+    state = config.load('data/state_'..player.name..'.xml', state_defaults)
+end
 
 local disp = texts.new('treasureLog')
 texts.size(disp, settings.font_size)
@@ -125,6 +127,7 @@ local manual_show    = false  -- true when user forces display outside a tracked
 -- Persistence helpers
 -- ---------------------------------------------------------------------------
 local function save_state()
+    if not state then return end  -- not yet initialized (player not logged in)
     local a = tracking[APOLLYON]
     local t = tracking[TEMENOS]
     state.apollyon_NW = a.NW ~= nil
@@ -242,7 +245,7 @@ end
 -- ---------------------------------------------------------------------------
 local function render_zone_rows(zone_id, lines)
     local data = tracking[zone_id]
-    lines[#lines+1] = C_HEAD..'=== '..zone_name[zone_id]..' Coffers ==='..C_END
+    lines[#lines+1] = C_HEAD..'=== '..zone_name[zone_id]..' ==='..C_END
     for _, s in ipairs(zone_sectors[zone_id]) do
         local st = data[s]
         local col, tag
@@ -364,6 +367,21 @@ windower.register_event('incoming text', function(original, modified, mode)
     if now - last_record_time < RECORD_COOLDOWN then return end
     last_record_time = now
 
+    -- Ignore if not near a known chest (e.g. ??? giving 3000)
+    local me = windower.ffxi.get_mob_by_target('me')
+    if me then
+        local chests = active_zone == APOLLYON and APOLLYON_CHESTS or TEMENOS_CHESTS
+        local min_d2 = math.huge
+        for _, pos in pairs(chests) do
+            local dx = me.x - pos.x
+            local dy = me.y - pos.y
+            local dz = me.z - pos.z
+            local d2 = dx*dx + dy*dy + dz*dz
+            if d2 < min_d2 then min_d2 = d2 end
+        end
+        if min_d2 > CHEST_DIST * CHEST_DIST then return end
+    end
+
     local sector = detect_sector()
     if sector then
         record_chest(sector, amount)
@@ -383,7 +401,7 @@ windower.register_event('zone change', function(new_zone, old_zone)
     if zone_name[new_zone] then
         active_zone = new_zone
         manual_show = false  -- active zone drives display
-        reset_zone(new_zone)
+        if state then load_state() end
         refresh_display()
     else
         active_zone = nil
@@ -399,6 +417,25 @@ end)
 -- Load (already logged in when addon loads)
 -- ---------------------------------------------------------------------------
 windower.register_event('load', function()
+    init_player_state()
+    if not state then return end  -- player not yet available; login event will handle it
+    local zone = windower.ffxi.get_info().zone
+    if zone_name[zone] then
+        active_zone = zone
+        load_state()
+        refresh_display()
+    end
+end)
+
+-- ---------------------------------------------------------------------------
+-- Login (fires when a character enters the world — catches the case where the
+-- addon loaded before the player finished logging in, which would have caused
+-- init_player_state() to defer above).
+-- ---------------------------------------------------------------------------
+windower.register_event('login', function()
+    state = nil  -- clear any partial/default state so init can run fresh
+    init_player_state()
+    if not state then return end
     local zone = windower.ffxi.get_info().zone
     if zone_name[zone] then
         active_zone = zone
@@ -440,7 +477,8 @@ windower.register_event('addon command', function(cmd, ...)
 
     -- ---- sector (manual toggle) ----
     elseif cmd == 'sector' then
-        local s      = (args[1] or ''):upper()
+        local s = (args[1] or ''):upper()
+
         local zone_id = active_zone or zone_for_sector(s)
         if not zone_id then
             log('Unknown sector "'..s..'". Valid: Apollyon: NW NE SW SE  |  Temenos: N E W C')
@@ -483,7 +521,7 @@ windower.register_event('addon command', function(cmd, ...)
         windower.add_to_chat(167, '  //lh reset                    - Reset tracking (auto-resets 5s after bonus)')
         windower.add_to_chat(167, '  //lh sector <sector>           - Toggle sector Opened/Unopened manually')
         windower.add_to_chat(167, '    Apollyon sectors: NW NE SW SE')
-        windower.add_to_chat(167, '    Temenos  sectors: N  E  W  C')
+        windower.add_to_chat(167, '    Temenos  sectors: N  W  E  C')
         windower.add_to_chat(167, '  //lh pos                      - Print position and detected sector')
         windower.add_to_chat(167, '  //lh debug                    - Toggle verbose incoming-text logging')
         windower.add_to_chat(167, '  //lh show / hide              - Toggle the overlay')
@@ -495,11 +533,16 @@ windower.register_event('addon command', function(cmd, ...)
 end)
 
 -- ---------------------------------------------------------------------------
--- Initialise if loaded while already inside a tracked zone
+-- Initialise if loaded while already inside a tracked zone.
+-- If player is not yet available (addon auto-loaded before login), init_player_state()
+-- returns nil; the login event handler will pick it up later.
 -- ---------------------------------------------------------------------------
-local initial_zone = windower.ffxi.get_info().zone
-if zone_name[initial_zone] then
-    active_zone = initial_zone
-    load_state()
-    refresh_display()
+init_player_state()
+if state then
+    local initial_zone = windower.ffxi.get_info().zone
+    if zone_name[initial_zone] then
+        active_zone = initial_zone
+        load_state()
+        refresh_display()
+    end
 end
