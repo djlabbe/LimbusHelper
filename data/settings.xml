@@ -1,9 +1,0 @@
-<?xml version="1.1" ?>
-<settings>
-    <global>
-        <bg_alpha>200</bg_alpha>
-        <font_size>11</font_size>
-        <pos_x>3200</pos_x>
-        <pos_y>1400</pos_y>
-    </global>
-</settings>
