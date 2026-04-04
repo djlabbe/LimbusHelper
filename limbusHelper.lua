@@ -23,7 +23,7 @@
 
 _addon.name     = 'LimbusHelper'
 _addon.author   = 'Kaius @ Bahamut'
-_addon.version  = '1.04'
+_addon.version  = '1.05'
 _addon.commands = {'limbushelper', 'lh'}
 
 config = require('config')
@@ -44,7 +44,7 @@ local zone_name = {
 
 -- Per-zone ordered sector lists (order controls display)
 local zone_sectors = {
-    [APOLLYON] = {'NW', 'NE', 'SW', 'SE'},
+    [APOLLYON] = {'NW', 'SW', 'NE', 'SE'},
     [TEMENOS]  = {'N', 'W', 'E', 'C'},
 }
 
