@@ -533,7 +533,7 @@ windower.register_event('addon command', function(cmd, ...)
         windower.add_to_chat(167, '  //lh pos                      - Print position and detected sector')
         windower.add_to_chat(167, '  //lh debug                    - Toggle verbose incoming-text logging')
         windower.add_to_chat(167, '  //lh show / hide              - Toggle the overlay')
-		windower.add_to_chat(167, '  //lh lastbonus (lb)              - Re-mark the previous bonus sector')
+		windower.add_to_chat(167, '  //lh lastbonus (lb)           - Re-mark the previous bonus sector')
 		
 	elseif cmd == 'lastbonus' or cmd == 'lb' then
 		if not last_bonus then
