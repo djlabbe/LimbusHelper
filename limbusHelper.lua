@@ -66,6 +66,7 @@ local TEMENOS_CHESTS = {
 local STANDARD_AMT   = 3000
 local BONUS_AMT      = 5000
 local CHEST_DIST     = 20   -- yalms; must be within this range to count as a chest open
+local last_bonus = nil  -- {zone_id, sector} of most recent bonus chest
 
 -- ---------------------------------------------------------------------------
 -- Config
@@ -295,6 +296,13 @@ end
 -- Reset tracking for a zone
 -- ---------------------------------------------------------------------------
 local function reset_zone(zone_id)
+	-- Remember where the bonus was before clearing
+    for _, s in ipairs(zone_sectors[zone_id]) do
+        if tracking[zone_id][s] == 'bonus' then
+            last_bonus = {zone_id = zone_id, sector = s}
+            break
+        end
+    end
     tracking[zone_id] = {}
     bonus_found    = false
     auto_resetting = false
@@ -525,6 +533,20 @@ windower.register_event('addon command', function(cmd, ...)
         windower.add_to_chat(167, '  //lh pos                      - Print position and detected sector')
         windower.add_to_chat(167, '  //lh debug                    - Toggle verbose incoming-text logging')
         windower.add_to_chat(167, '  //lh show / hide              - Toggle the overlay')
+		windower.add_to_chat(167, '  //lh lastbonus (lb)           - Re-mark the previous bonus sector')
+		
+	elseif cmd == 'lastbonus' or cmd == 'lb' then
+		if not last_bonus then
+			log('No bonus location recorded this session.')
+		else
+			local zname  = zone_name[last_bonus.zone_id]
+			local sec    = last_bonus.sector
+			tracking[last_bonus.zone_id][sec] = 'bonus'
+			bonus_found = (active_zone == last_bonus.zone_id)
+			save_state()
+			refresh_display()
+			log(zname..' '..sec..' restored as BONUS.')
+		end
 
     -- ---- unknown ----
     else
