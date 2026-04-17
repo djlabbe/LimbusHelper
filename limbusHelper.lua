@@ -23,7 +23,7 @@
 
 _addon.name     = 'LimbusHelper'
 _addon.author   = 'Kaius @ Bahamut'
-_addon.version  = '1.05'
+_addon.version  = '1.06'
 _addon.commands = {'limbushelper', 'lh'}
 
 config = require('config')
@@ -65,7 +65,7 @@ local TEMENOS_CHESTS = {
 
 local STANDARD_AMT   = 3000
 local BONUS_AMT      = 5000
-local CHEST_DIST     = 20   -- yalms; must be within this range to count as a chest open
+local CHEST_DIST     = 7   -- yalms; must be within this range to count as a chest open
 
 -- ---------------------------------------------------------------------------
 -- Config
@@ -308,7 +308,7 @@ end
 local function record_chest(sector, amount)
     if not active_zone then return end
 
-    local is_bonus = (amount == BONUS_AMT)
+    local is_bonus = (amount > STANDARD_AMT)
     tracking[active_zone][sector] = is_bonus and 'bonus' or 'std'
     save_state()
 
@@ -354,7 +354,7 @@ windower.register_event('incoming text', function(original, modified, mode)
     if not zone_str then return end
 
     local amount = tonumber(amt_str)
-    if amount ~= STANDARD_AMT and amount ~= BONUS_AMT then return end
+    if amount < STANDARD_AMT or amount > BONUS_AMT then return end
 
     -- Sanity-check: message zone matches active zone
     if (zone_str == 'Apollyon') ~= (active_zone == APOLLYON) then
