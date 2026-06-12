@@ -23,7 +23,7 @@
 
 _addon.name     = 'LimbusHelper'
 _addon.author   = 'Kaius @ Bahamut'
-_addon.version  = '1.06'
+_addon.version  = '1.07'
 _addon.commands = {'limbushelper', 'lh'}
 
 config = require('config')
@@ -69,15 +69,17 @@ local CHEST_DIST     = 7   -- yalms; must be within this range to count as a che
 
 -- ---------------------------------------------------------------------------
 -- Config
--- Display settings are global (settings.xml).
+-- Display settings (settings.xml): dragging the overlay saves its position
+-- into the current character's section of the file, so each character keeps
+-- its own placement.
 -- Sector state is per-character (data/state.xml): the config library writes
 -- each character's data to its own <CharName> section automatically.
 -- ---------------------------------------------------------------------------
 local display_defaults = T{}
-display_defaults.pos_x     = 8
-display_defaults.pos_y     = 8
-display_defaults.font_size = 11
-display_defaults.bg_alpha  = 200
+display_defaults.pos   = T{x = 8, y = 8}
+display_defaults.text  = T{size = 11, red = 255, green = 255, blue = 255}
+display_defaults.bg    = T{alpha = 200}
+display_defaults.flags = T{draggable = true}
 
 settings = config.load(display_defaults)
 
@@ -101,12 +103,10 @@ local function init_player_state()
     state = config.load('data/state_'..player.name..'.xml', state_defaults)
 end
 
-local disp = texts.new('treasureLog')
-texts.size(disp, settings.font_size)
-texts.pos_x(disp, settings.pos_x)
-texts.pos_y(disp, settings.pos_y)
-texts.bg_alpha(disp, settings.bg_alpha)
-texts.color(disp, 255, 255, 255)
+-- Passing settings as both the display and root settings binds the overlay to
+-- settings.xml: the texts library saves the position on drag release and
+-- re-applies the stored per-character position on login/logout.
+local disp = texts.new('', settings, settings)
 
 -- ---------------------------------------------------------------------------
 -- Runtime state
