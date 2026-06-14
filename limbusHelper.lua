@@ -23,7 +23,7 @@
 
 _addon.name     = 'LimbusHelper'
 _addon.author   = 'Kaius @ Bahamut'
-_addon.version  = '1.06'
+_addon.version  = '1.08'
 _addon.commands = {'limbushelper', 'lh'}
 
 config = require('config')
@@ -69,15 +69,17 @@ local CHEST_DIST     = 7   -- yalms; must be within this range to count as a che
 
 -- ---------------------------------------------------------------------------
 -- Config
--- Display settings are global (settings.xml).
+-- Display settings (settings.xml): dragging the overlay saves its position
+-- into the current character's section of the file, so each character keeps
+-- its own placement.
 -- Sector state is per-character (data/state.xml): the config library writes
 -- each character's data to its own <CharName> section automatically.
 -- ---------------------------------------------------------------------------
 local display_defaults = T{}
-display_defaults.pos_x     = 8
-display_defaults.pos_y     = 8
-display_defaults.font_size = 11
-display_defaults.bg_alpha  = 200
+display_defaults.pos   = T{x = 8, y = 8}
+display_defaults.text  = T{size = 11, red = 255, green = 255, blue = 255}
+display_defaults.bg    = T{alpha = 200}
+display_defaults.flags = T{draggable = true}
 
 settings = config.load(display_defaults)
 
@@ -101,12 +103,10 @@ local function init_player_state()
     state = config.load('data/state_'..player.name..'.xml', state_defaults)
 end
 
-local disp = texts.new('treasureLog')
-texts.size(disp, settings.font_size)
-texts.pos_x(disp, settings.pos_x)
-texts.pos_y(disp, settings.pos_y)
-texts.bg_alpha(disp, settings.bg_alpha)
-texts.color(disp, 255, 255, 255)
+-- Passing settings as both the display and root settings binds the overlay to
+-- settings.xml: the texts library saves the position on drag release and
+-- re-applies the stored per-character position on login/logout.
+local disp = texts.new('', settings, settings)
 
 -- ---------------------------------------------------------------------------
 -- Runtime state
@@ -165,6 +165,21 @@ local function load_state()
             end
         end
     end
+end
+
+-- Re-read this character's saved display settings (including the dragged
+-- overlay position) from settings.xml and re-apply them to the overlay.
+--
+-- The texts library only re-applies the stored position through the config
+-- library's reload, which fires on the load/login/logout events only -- never
+-- on a plain zone change. Worse, the login reload can run before the player
+-- object is populated, in which case parse() skips the per-character section
+-- and clobbers the in-memory position back to the global default. Calling this
+-- once the player is known (on zone-in to a tracked zone, load, and login)
+-- restores the correct per-character position from disk.
+local function restore_display_settings()
+    if not windower.ffxi.get_player() then return end
+    config.reload(settings)
 end
 
 -- ---------------------------------------------------------------------------
@@ -288,6 +303,10 @@ local function refresh_display()
     end
 
     texts.text(disp, table.concat(lines, '\n'))
+    -- Re-assert the saved position before showing: the underlying primitive can
+    -- lose its location across a zone change, and settings.pos is the in-memory
+    -- authoritative value (kept current by drag-release saves and reloads).
+    disp:pos(settings.pos.x, settings.pos.y)
     disp:show()
 end
 
@@ -402,6 +421,7 @@ windower.register_event('zone change', function(new_zone, old_zone)
         active_zone = new_zone
         manual_show = false  -- active zone drives display
         if state then load_state() end
+        restore_display_settings()  -- re-apply saved overlay position (zone change skips config reload)
         refresh_display()
     else
         active_zone = nil
@@ -423,6 +443,7 @@ windower.register_event('load', function()
     if zone_name[zone] then
         active_zone = zone
         load_state()
+        restore_display_settings()
         refresh_display()
     end
 end)
@@ -440,6 +461,7 @@ windower.register_event('login', function()
     if zone_name[zone] then
         active_zone = zone
         load_state()
+        restore_display_settings()
         refresh_display()
     end
 end)
@@ -543,6 +565,7 @@ if state then
     if zone_name[initial_zone] then
         active_zone = initial_zone
         load_state()
+        restore_display_settings()
         refresh_display()
     end
 end
